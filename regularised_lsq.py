@@ -6,7 +6,10 @@ This code provides a reference implementation of the algorithms described in:
       inverse problem', Geophys. J. Int., 2018.
 
 All code is provided 'as is' and without warranty. We welcome bug-fixes, comments and
-suggestions, but we are unable to provide users with detailed technical support.
+suggestions, but we are unable to provide users with detailed technical support. A Git
+repository containing this code can be found online at:
+https://github.com/valentineap/optimal-regularisation
+This will be used to distribute any future versions of this code.
 
 This file provides the following routines:
         ** General covariance matrices **
