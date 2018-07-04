@@ -18,6 +18,9 @@ This file provides the following routines:
     findOptimalXi(GGTG<GTd,xi0,xi2cov,hprior=None,bounds=None,report=None)
     solveLSQgeneral(GTG,GTd,xi0,xi2cov,hprior=None,bounds=None,report=None,fullOutput=False)
 
+       ** Automatic relevance determination **
+    solveLSQard(GTG,GTd,bounds=None,fullOutput=False)
+
         ** Tikhonov-style regularisation **
     getLogProbTik(GTG,GTd,H,alpha,beta,k=0)
     getAlphaBetaDerivatives(GTG,GTd,H,alpha,beta)
@@ -121,7 +124,7 @@ def findOptimalXi(GTG,GTd,xi0,xi2cov,hprior=None,bounds=None,report=None):
     def objective(xi):
         Cm,iCm,drv = xi2cov(xi)
         if Cm is None:
-            if iCm is None: raise ValueError, "xi2cov does not appear to return values"
+            if iCm is None: raise ValueError("xi2cov does not appear to return values")
             Cm = np.linalg.inv(iCm)
         if iCm is None:
             iCm = np.linalg.inv(Cm)
@@ -190,7 +193,46 @@ def solveLSQgeneral(GTG,GTd,xi0,xi2cov,hprior=None,bounds=None,report=None,fullO
     else:
         return pCov.dot(GTd)
 
+def solveLSQard(GTG,GTd,bounds=None,fullOutput=False):
+    '''
+    Solve least-squares problem using a simple Automatic Relevance Determination
+    approach where each model parameter is given its own, independent regularisation
+    hyperparameter.
+    Inputs:
+    GTG, GTd   -- The linear system
+    bounds     -- List of (lower,upper) bounds on each of the M regularisation terms.
+                  If none, a default value is used.
+    fullOutput -- Set to True to return additional information
 
+    If fullOutput=False, returns m where
+    m          -- Vector of best-fitting model coefficients
+    If fullOutput=True, returns m,pCov,xi0 where
+    m          -- Vector of best-fitting model coefficients
+    pCov       -- Posterior covariance matrix
+    xi0        -- Vector of ARD parameters; model covariance matrix Cm = diag(1/xi0**2)
+    '''
+    # This routine could likely be made more efficient by rotating into the principal coordinate
+    # system, as is done for Tikhonov case. However, details may be problem-dependent.
+    def xi2cov(xi):
+        nXi = xi.shape[0]
+        iCm = np.diag(xi**2)
+        Cm = np.diag(1./xi**2)
+        diCm = np.zeros([nXi,nXi,nXi])
+        for i in range(0,nXi):
+            diCm[i,i,i] = 2*xi[i]
+        return Cm, iCm,diCm
+    # Now find optimum
+    ndim = GTG.shape[0]
+    if bounds is None:
+        bounds = ndim*[(1e-12,1e5)]
+    xi0 = np.ones(ndim) # Start with something simple
+    xiOpt,info = findOptimalXi(GTG,GTd,xi0,xi2cov,bounds=bounds)
+    pCovXi = np.linalg.inv(GTG+np.diag(xiOpt))
+    mXiOpt = pCovXi.dot(GTd)
+    if fullOutput:
+        return mXiOpt,pCovXi,xiOpt
+    else:
+        return mXiOpt
 
 # The following routines are for the special case of 'Tikhonov Regularisation' as
 # discussed in Section 3.2 of the paper.
@@ -325,9 +367,9 @@ def getOptimalAlpha(lam, S, GTd, omega, T, beta,dlhprior=None,alphaMin=1e-12,alp
     try:
         alpha0 = optim.brentq(rootfunc,alphaMin,alphaMax)
     except ValueError as err:
-        print "Error: Unable to find an optimal value of alpha\n  "\
+        print("Error: Unable to find an optimal value of alpha\n  "\
                         "Search range: [%f,%f]\n  beta: %f\n"\
-                        "Raising error from scipy.optimize.brentq..."%(alphaMin,alphaMax,beta)
+                        "Raising error from scipy.optimize.brentq..."%(alphaMin,alphaMax,beta))
         raise err
     return alpha0
 
@@ -366,9 +408,9 @@ def getOptimalBeta(gamma,U,GTd,omega,T,alpha,dlhprior=None,betaMin=1e-12,betaMax
     try:
         beta0 = optim.brentq(rootfunc,betaMin,betaMax)
     except ValueError as err:
-        print "Error: Unable to find an optimal value of beta\n  "\
+        print("Error: Unable to find an optimal value of beta\n  "\
                         "Search range: [%f,%f]\n  alpha: %f\n"\
-                        "Raising error from scipy.optimize.brentq..."%(betaMin,betaMax,alpha)
+                        "Raising error from scipy.optimize.brentq..."%(betaMin,betaMax,alpha))
         raise err
     return beta0
 
@@ -521,7 +563,7 @@ if __name__ == '__main__':
         iCd = np.eye(nSamples) / noiseSigma**2
         GTG = G.T.dot(iCd).dot(G)
         GTd = G.T.dot(iCd).dot(ySamples - G.dot(mPrior))
-        print "Condition number for GTG: %.3e (sigma = %.2f)"%(np.linalg.cond(GTG),noiseSigma)
+        print("Condition number for GTG: %.3e (sigma = %.2f)"%(np.linalg.cond(GTG),noiseSigma))
 
         # Map out the L-curve (model norm against misfit) by performing inversion for sequence of different alpha-values
         if noiseSigma == 0.1:
@@ -546,7 +588,7 @@ if __name__ == '__main__':
         mOptimalNorm = mOptimalAlpha.dot(mOptimalAlpha)
         residuals = ySamples - G.dot(mPrior) - G.dot(mOptimalAlpha)
         mOptimalMisfit = residuals.dot(residuals)/nSamples
-        print "Optimal alpha: %.3f (sigma = %.2f)"%(alpha0,noiseSigma)
+        print("Optimal alpha: %.3f (sigma = %.2f)"%(alpha0,noiseSigma))
         #########################
         ### Use getLogProbTik ###
         #########################
@@ -654,25 +696,29 @@ if __name__ == '__main__':
                 plt.savefig("marginals_hi.pdf")
         plt.show()
         # Now do ARD version
-        #########################
-        ### Use findOptimalXi ###
-        #########################
-        # First create xi2cov function to generate covariance matrices from a xi-vector
-        def xi2cov(xi):
-            nXi = xi.shape[0]
-            iCm = np.diag(xi**2)
-            Cm = np.diag(1./xi**2)
-            diCm = np.zeros([nXi,nXi,nXi])
-            for i in range(0,nXi):
-                diCm[i,i,i] = 2*xi[i]
-            return Cm, iCm,diCm
-        # Now find optimum
-        xi0 = np.ones(M) # Start with something simple
-        xiOpt,info = findOptimalXi(GTG,GTd,xi0,xi2cov,bounds=M*[(1e-12,1e5)])
-        print xiOpt
-        #pCovXi = np.linalg.inv(GTG+np.diag(1./xiOpt))
-        pCovXi = np.linalg.inv(GTG+np.diag(xiOpt))
-        mXiOpt = pCovXi.dot(GTd)
+        # #########################
+        # ### Use findOptimalXi ###  <-- Now wrapped into a convenience function
+        # #########################
+        # # First create xi2cov function to generate covariance matrices from a xi-vector
+        # def xi2cov(xi):
+        #     nXi = xi.shape[0]
+        #     iCm = np.diag(xi**2)
+        #     Cm = np.diag(1./xi**2)
+        #     diCm = np.zeros([nXi,nXi,nXi])
+        #     for i in range(0,nXi):
+        #         diCm[i,i,i] = 2*xi[i]
+        #     return Cm, iCm,diCm
+        # # Now find optimum
+        # xi0 = np.ones(M) # Start with something simple
+        # xiOpt,info = findOptimalXi(GTG,GTd,xi0,xi2cov,bounds=M*[(1e-12,1e5)])
+        # print(xiOpt)
+        # #pCovXi = np.linalg.inv(GTG+np.diag(1./xiOpt))
+        # pCovXi = np.linalg.inv(GTG+np.diag(xiOpt))
+        # mXiOpt = pCovXi.dot(GTd)
+        #######################
+        ### Use solveLSQard ###
+        #######################
+        mXiOpt,pCovXi,xiOpt = solveLSQard(GTG,GTd,fullOutput=True)
         # Want to map transects through P(xi | d) centred on this point. Simplest to
         # wrap this into a function:
         def transect(icomp,xiLo,xiUp,nXi):
