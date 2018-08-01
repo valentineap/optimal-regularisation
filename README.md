@@ -2,7 +2,7 @@
 
 This project provides a reference implementation of the algorithms described in:
 
-  Valentine, A.P. and Sambridge, M., Optimal regularisation for a class of linear inverse problem, *Geophysical Journal International*, *in review*.
+  Valentine, A.P. and Sambridge, M., [Optimal regularisation for a class of linear inverse problem](http://dx.doi.org/10.1093/gji/ggy303), *Geophysical Journal International*, *in press*.
 
 Specifically, these algorithms are intended to solve linear regression problems of the form
 
